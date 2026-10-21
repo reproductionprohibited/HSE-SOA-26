@@ -1,0 +1,68 @@
+# !!! Сгенерировано fastapi-code-generator по openapi/marketplace.yaml — не редактировать !!!
+
+from abc import ABC, abstractmethod
+from collections.abc import Awaitable, Callable
+from decimal import Decimal
+from typing import Any
+
+from fastapi import APIRouter, Depends
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+
+{{imports}}
+
+
+def _json_response(model: BaseModel, status_code: int) -> JSONResponse:
+    # Pydantic сериализует Decimal в строку, а в контракте деньги — number
+    content = jsonable_encoder(
+        model.model_dump(mode='python', by_alias=True),
+        custom_encoder={Decimal: float},
+    )
+    return JSONResponse(content=content, status_code=status_code)
+
+
+class MarketplaceApi(ABC):
+{% for operation in operations %}
+{%- set secured = operation.security %}
+    @abstractmethod
+    async def {{operation.function_name}}(self{% if secured %}, principal: Any{% endif %}{% for argument in operation.arguments_list %}, {{argument.name}}: {{argument.resolved_type_hint}}{% endfor %}) -> {{operation.response}}:
+        {%- if operation.summary %}
+        """{{ operation.summary }}"""
+        {%- endif %}
+        ...
+{% endfor %}
+
+
+def create_router(api: MarketplaceApi, authenticate: Callable[..., Awaitable[Any]]) -> APIRouter:
+    router = APIRouter()
+{% for operation in operations %}
+{%- set secured = operation.security %}
+
+    @router.{{operation.type}}(
+        '{{operation.path}}',
+        response_model={{operation.response}},
+        {%- if operation.status_code %}
+        status_code={{operation.status_code}},
+        {%- endif %}
+        {%- if operation.additional_responses %}
+        responses={
+            {%- for status_code, models in operation.additional_responses.items() %}
+            '{{ status_code }}': { {%- for key, model in models.items() %}'{{ key }}': {{ model }}{% if not loop.last %}, {% endif %}{%- endfor %}},
+            {%- endfor %}
+        },
+        {%- endif %}
+        {%- if operation.tags %}
+        tags={{operation.tags}},
+        {%- endif %}
+        {%- if operation.summary %}
+        summary="""{{operation.summary}}""",
+        {%- endif %}
+        operation_id='{{operation.operationId}}',
+    )
+    async def {{operation.function_name}}({{operation.snake_case_arguments}}{% if secured %}{% if operation.arguments_list %}, {% endif %}principal: Any = Depends(authenticate){% endif %}) -> {{operation.response}}:
+        result = await api.{{operation.function_name}}({% if secured %}principal{% if operation.arguments_list %}, {% endif %}{% endif %}{{operation.plain_arguments}})
+        return _json_response(result, {{operation.status_code or 200}})
+{% endfor %}
+
+    return router
