@@ -1,0 +1,28 @@
+[project]
+name = "marketplace"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "argon2-cffi>=23.1",
+    "asyncpg>=0.30",
+    "email-validator>=2.2",
+    "fastapi>=0.115,<0.116",
+    "pydantic-settings>=2.6",
+    "pyjwt>=2.9",
+    "pyyaml>=6.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "uvicorn[standard]>=0.32",
+]
+
+[dependency-groups]
+codegen = [
+    "fastapi-code-generator==0.8.1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pyright]
+extraPaths = ["generated"]
+venvPath = "."
+venv = ".venv"

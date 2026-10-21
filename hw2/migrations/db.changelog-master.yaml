@@ -1,0 +1,16 @@
+databaseChangeLog:
+  - include:
+      file: changesets/001-common.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changesets/002-products.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changesets/003-orders.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changesets/004-seed-promo-codes.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changesets/005-users.sql
+      relativeToChangelogFile: true

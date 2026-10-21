@@ -1,0 +1,8 @@
+# Сгенерированный из OpenAPI код
+generated/
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
