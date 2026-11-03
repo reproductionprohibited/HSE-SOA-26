@@ -1,0 +1,123 @@
+syntax = "proto3";
+
+package flight.v1;
+
+import "google/protobuf/field_mask.proto";
+import "google/protobuf/timestamp.proto";
+
+// Flight Service — управление рейсами и местами.
+//
+// Аутентификация: каждый вызов передаёт API key в metadata `x-api-key`.
+//
+// Общие ошибки для всех методов:
+//   UNAUTHENTICATED  — API key не передан или неверен;
+//   INVALID_ARGUMENT — невалидные входные данные (UUID, IATA-код, seat_count, дата);
+//   INTERNAL         — непредвиденная ошибка сервиса.
+service FlightService {
+  // Поиск рейсов в статусе SCHEDULED по маршруту и (опционально) дате вылета (сутки по UTC).
+  // Результат отсортирован по времени вылета.
+  rpc SearchFlights(SearchFlightsRequest) returns (SearchFlightsResponse);
+
+  // Получение рейса по ID.
+  //   NOT_FOUND — рейс не найден.
+  rpc GetFlight(GetFlightRequest) returns (Flight);
+
+  // Атомарно проверяет наличие мест и резервирует их под бронирование booking_id.
+  // Идемпотентен по booking_id: повтор с теми же flight_id и seat_count возвращает
+  // существующую резервацию, места повторно не списываются.
+  //   NOT_FOUND           — рейс не найден;
+  //   FAILED_PRECONDITION — рейс не в статусе SCHEDULED;
+  //   RESOURCE_EXHAUSTED  — недостаточно свободных мест;
+  //   ALREADY_EXISTS      — резервация для booking_id уже существует с другими flight_id / seat_count.
+  rpc ReserveSeats(ReserveSeatsRequest) returns (SeatReservation);
+
+  // Возвращает места активной резервации бронирования и переводит её в RELEASED.
+  // Идемпотентен: для уже освобождённой резервации возвращает её без изменений.
+  //   NOT_FOUND — резервации для booking_id нет.
+  rpc ReleaseReservation(ReleaseReservationRequest) returns (SeatReservation);
+
+  // Изменение рейса: меняются только поля из update_mask
+  // (допустимы price, status, departure_time, arrival_time).
+  //   NOT_FOUND        — рейс не найден;
+  //   INVALID_ARGUMENT — недопустимое поле в маске или значение нарушает ограничения;
+  //   ALREADY_EXISTS   — рейс с этим номером на новую дату вылета уже есть.
+  rpc UpdateFlight(UpdateFlightRequest) returns (Flight);
+}
+
+enum FlightStatus {
+  FLIGHT_STATUS_UNSPECIFIED = 0;
+  FLIGHT_STATUS_SCHEDULED = 1;
+  FLIGHT_STATUS_DEPARTED = 2;
+  FLIGHT_STATUS_CANCELLED = 3;
+  FLIGHT_STATUS_COMPLETED = 4;
+}
+
+enum ReservationStatus {
+  RESERVATION_STATUS_UNSPECIFIED = 0;
+  RESERVATION_STATUS_ACTIVE = 1;
+  RESERVATION_STATUS_RELEASED = 2;
+  RESERVATION_STATUS_EXPIRED = 3;
+}
+
+// Календарная дата без часового пояса (аналог google.type.Date).
+// Моменты времени передаются как google.protobuf.Timestamp.
+message Date {
+  int32 year = 1;
+  int32 month = 2;
+  int32 day = 3;
+}
+
+message Flight {
+  string id = 1;                                // UUID
+  string flight_number = 2;                     // "SU1234" = airline_code + номер
+  string airline_code = 3;                      // "SU"
+  string airline_name = 4;                      // "Aeroflot"
+  string origin = 5;                            // IATA-код аэропорта вылета, "SVO"
+  string destination = 6;                       // IATA-код аэропорта прилёта, "LED"
+  google.protobuf.Timestamp departure_time = 7;
+  google.protobuf.Timestamp arrival_time = 8;
+  int32 total_seats = 9;
+  int32 available_seats = 10;
+  int64 price = 11;                             // цена одного места в минимальных единицах (копейках)
+  string currency = 12;                         // ISO 4217, "RUB"
+  FlightStatus status = 13;
+}
+
+message SeatReservation {
+  string id = 1;                                // UUID
+  string flight_id = 2;                         // UUID
+  string booking_id = 3;                        // UUID бронирования в Booking Service
+  int32 seat_count = 4;
+  ReservationStatus status = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+message SearchFlightsRequest {
+  string origin = 1;                            // IATA, обязателен
+  string destination = 2;                       // IATA, обязателен
+  Date date = 3;                                // необязателен: не задан — все даты
+}
+
+message SearchFlightsResponse {
+  repeated Flight flights = 1;
+}
+
+message GetFlightRequest {
+  string flight_id = 1;
+}
+
+message ReserveSeatsRequest {
+  string flight_id = 1;
+  int32 seat_count = 2;                         // > 0
+  string booking_id = 3;
+}
+
+message ReleaseReservationRequest {
+  string booking_id = 1;
+}
+
+message UpdateFlightRequest {
+  Flight flight = 1;                            // flight.id — какой рейс, остальное — новые значения
+  google.protobuf.FieldMask update_mask = 2;    // например paths: ["price", "status"]
+}

@@ -1,0 +1,7 @@
+**/.venv
+**/generated
+**/__pycache__
+**/*.pyc
+.git
+docs
+*.md

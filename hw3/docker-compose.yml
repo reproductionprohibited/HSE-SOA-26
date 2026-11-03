@@ -1,0 +1,190 @@
+x-redis-node: &redis-node
+  image: redis:7.4-alpine
+  healthcheck:
+    test: ["CMD", "redis-cli", "ping"]
+    interval: 2s
+    timeout: 3s
+    retries: 20
+
+x-redis-sentinel: &redis-sentinel
+  image: redis:7.4-alpine
+  entrypoint: ["/bin/sh", "/sentinel-entrypoint.sh"]
+  volumes:
+    - ./redis/sentinel-entrypoint.sh:/sentinel-entrypoint.sh:ro
+  depends_on:
+    redis-master:
+      condition: service_healthy
+    redis-replica:
+      condition: service_healthy
+  healthcheck:
+    test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+    interval: 2s
+    timeout: 3s
+    retries: 20
+
+services:
+  # ---------- Flight Service ----------
+  flights-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: flights
+      POSTGRES_USER: flights
+      POSTGRES_PASSWORD: flights
+    volumes:
+      - flights-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U flights -d flights"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  flights-migrations:
+    image: liquibase/liquibase:4.29.2
+    depends_on:
+      flights-db:
+        condition: service_healthy
+    volumes:
+      - ./flight-service/migrations:/liquibase/changelog:ro
+    command:
+      - --url=jdbc:postgresql://flights-db:5432/flights
+      - --username=flights
+      - --password=flights
+      - --search-path=/liquibase/changelog
+      - --changelog-file=db.changelog-master.yaml
+      - update
+
+  # ---------- Redis: master + replica + 3 sentinel (кворум 2) ----------
+  redis-master:
+    <<: *redis-node
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--replica-announce-ip", "redis-master"]
+
+  redis-replica:
+    <<: *redis-node
+    command: ["redis-server", "--save", "", "--appendonly", "no", "--replica-announce-ip", "redis-replica",
+              "--replicaof", "redis-master", "6379"]
+    depends_on:
+      redis-master:
+        condition: service_healthy
+
+  redis-sentinel-1:
+    <<: *redis-sentinel
+    environment: &sentinel-env
+      SENTINEL_ANNOUNCE_HOST: redis-sentinel-1
+      REDIS_MASTER_NAME: mymaster
+      REDIS_MASTER_HOST: redis-master
+      SENTINEL_QUORUM: 2
+
+  redis-sentinel-2:
+    <<: *redis-sentinel
+    environment:
+      <<: *sentinel-env
+      SENTINEL_ANNOUNCE_HOST: redis-sentinel-2
+
+  redis-sentinel-3:
+    <<: *redis-sentinel
+    environment:
+      <<: *sentinel-env
+      SENTINEL_ANNOUNCE_HOST: redis-sentinel-3
+
+  flight-service:
+    build:
+      context: .
+      dockerfile: flight-service/Dockerfile
+    depends_on:
+      flights-migrations:
+        condition: service_completed_successfully
+      redis-sentinel-1:
+        condition: service_healthy
+      redis-sentinel-2:
+        condition: service_healthy
+      redis-sentinel-3:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://flights:flights@flights-db:5432/flights
+      GRPC_PORT: 50051
+      FLIGHT_SERVICE_API_KEY: ${FLIGHT_SERVICE_API_KEY:-dev-flight-api-key}
+      REDIS_SENTINELS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_MASTER_NAME: mymaster
+      CACHE_FLIGHT_TTL_SECONDS: 300
+      CACHE_SEARCH_TTL_SECONDS: 300
+      # Только для scripts/demo_retry.sh
+      FAULT_DROP_RESERVE_RESPONSES: ${FAULT_DROP_RESERVE_RESPONSES:-0}
+    ports:
+      - "50051:50051"  # для отладки через grpcurl
+    healthcheck:
+      # gRPC-порт принимает соединения (HTTP/2 handshake); API key для этого не нужен
+      test: ["CMD", "python", "-c", "import grpc; grpc.channel_ready_future(grpc.insecure_channel('localhost:50051')).result(timeout=2)"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ---------- Booking Service ----------
+  bookings-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bookings
+      POSTGRES_USER: bookings
+      POSTGRES_PASSWORD: bookings
+    volumes:
+      - bookings-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bookings -d bookings"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  bookings-migrations:
+    image: liquibase/liquibase:4.29.2
+    depends_on:
+      bookings-db:
+        condition: service_healthy
+    volumes:
+      - ./booking-service/migrations:/liquibase/changelog:ro
+    command:
+      - --url=jdbc:postgresql://bookings-db:5432/bookings
+      - --username=bookings
+      - --password=bookings
+      - --search-path=/liquibase/changelog
+      - --changelog-file=db.changelog-master.yaml
+      - update
+
+  booking-service:
+    build:
+      context: .
+      dockerfile: booking-service/Dockerfile
+    depends_on:
+      bookings-migrations:
+        condition: service_completed_successfully
+      flight-service:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bookings:bookings@bookings-db:5432/bookings
+      FLIGHT_SERVICE_ADDR: flight-service:50051
+      FLIGHT_SERVICE_TIMEOUT_SECONDS: 2
+      FLIGHT_SERVICE_API_KEY: ${FLIGHT_SERVICE_API_KEY:-dev-flight-api-key}
+      RETRY_MAX_ATTEMPTS: 3
+      RETRY_INITIAL_BACKOFF_MS: 100
+      CB_FAILURE_THRESHOLD: 5
+      CB_WINDOW_SECONDS: 30
+      CB_OPEN_TIMEOUT_SECONDS: ${CB_OPEN_TIMEOUT_SECONDS:-15}
+      # Только для scripts/demo_compensation.sh
+      FAULT_FAIL_BOOKING_INSERT: ${FAULT_FAIL_BOOKING_INSERT:-false}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/docs')"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  # ---------- Инструменты (не стартуют при `up`) ----------
+  # docker compose run --rm grpcurl -plaintext -H 'x-api-key: dev-flight-api-key' flight-service:50051 list
+  grpcurl:
+    image: fullstorydev/grpcurl:v1.9.1
+    profiles: ["tools"]
+    volumes:
+      - ./proto:/proto:ro  # для вызовов с -proto, без reflection
+
+volumes:
+  flights-pgdata:
+  bookings-pgdata:
