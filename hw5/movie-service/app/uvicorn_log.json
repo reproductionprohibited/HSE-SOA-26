@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "disable_existing_loggers": false,
+  "formatters": {
+    "json": {"()": "app.logging_config.JsonFormatter"}
+  },
+  "handlers": {
+    "stdout": {"class": "logging.StreamHandler", "formatter": "json", "stream": "ext://sys.stdout"}
+  },
+  "root": {"handlers": ["stdout"], "level": "INFO"},
+  "loggers": {
+    "uvicorn": {"level": "INFO"},
+    "uvicorn.access": {"level": "INFO"}
+  }
+}

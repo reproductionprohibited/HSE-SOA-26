@@ -1,0 +1,9 @@
+<clickhouse>
+    <!-- Пользователь analytics создаётся entrypoint'ом образа из CLICKHOUSE_USER; здесь только добавляем
+         право использовать named collections (movie_events_kafka в Kafka Engine). -->
+    <users>
+        <analytics>
+            <named_collection_control>1</named_collection_control>
+        </analytics>
+    </users>
+</clickhouse>

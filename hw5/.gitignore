@@ -1,0 +1,13 @@
+# Python: локальные окружения uv и кэши
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# macOS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Локальные переменные окружения
+.env
