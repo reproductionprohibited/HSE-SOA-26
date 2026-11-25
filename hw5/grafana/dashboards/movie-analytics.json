@@ -1,0 +1,332 @@
+{
+  "uid": "movie-analytics",
+  "title": "Movie Analytics",
+  "tags": [
+    "hw5"
+  ],
+  "timezone": "utc",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": false,
+  "time": {
+    "from": "now-14d",
+    "to": "now"
+  },
+  "refresh": "1m",
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Retention Cohort Heatmap",
+      "description": "Доля пользователей когорты (дата первого VIEW_STARTED), активных на N-й день. Пустые ячейки — день ещё не наступил.",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 12
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "-- Когортный retention: строки — когорты по дате первого просмотра, колонки — день жизни\nSELECT\n    toString(cohort_date) AS \"Когорта\",\n    any(cohort_size) AS \"Размер\",\n    maxOrNullIf(rate, day_n = 0) AS \"Day 0\",\n    maxOrNullIf(rate, day_n = 1) AS \"Day 1\",\n    maxOrNullIf(rate, day_n = 2) AS \"Day 2\",\n    maxOrNullIf(rate, day_n = 3) AS \"Day 3\",\n    maxOrNullIf(rate, day_n = 4) AS \"Day 4\",\n    maxOrNullIf(rate, day_n = 5) AS \"Day 5\",\n    maxOrNullIf(rate, day_n = 6) AS \"Day 6\",\n    maxOrNullIf(rate, day_n = 7) AS \"Day 7\"\nFROM agg_retention_cohort FINAL\nWHERE $__dateFilter(cohort_date)\nGROUP BY cohort_date\nORDER BY cohort_date"
+        }
+      ],
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "decimals": 0,
+          "min": 0,
+          "max": 1,
+          "noValue": "",
+          "color": {
+            "mode": "continuous-RdYlGr"
+          },
+          "custom": {
+            "align": "center",
+            "cellOptions": {
+              "type": "color-background",
+              "mode": "gradient"
+            }
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Когорта"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Размер"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "auto"
+                }
+              },
+              {
+                "id": "unit",
+                "value": "none"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "DAU",
+      "gridPos": {
+        "x": 0,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT toDateTime(metric_date) AS time, value AS \"DAU\"\nFROM agg_daily_metrics FINAL\nWHERE metric_name = 'dau' AND $__dateFilter(metric_date)\nORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0,
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 60
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Конверсия просмотра и retention D1 / D7",
+      "description": "Конверсия — доля сессий с VIEW_STARTED, дошедших до VIEW_FINISHED. Retention — по дате когорты.",
+      "gridPos": {
+        "x": 8,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT\n    toDateTime(metric_date) AS time,\n    maxOrNullIf(value, metric_name = 'view_conversion') AS \"Конверсия\",\n    maxOrNullIf(value, metric_name = 'retention_d1') AS \"Retention D1\",\n    maxOrNullIf(value, metric_name = 'retention_d7') AS \"Retention D7\"\nFROM agg_daily_metrics FINAL\nWHERE $__dateFilter(metric_date)\nGROUP BY time\nORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "showPoints": "always",
+            "spanNulls": false
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Среднее время просмотра (VIEW_FINISHED)",
+      "gridPos": {
+        "x": 16,
+        "y": 12,
+        "w": 8,
+        "h": 8
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 0,
+          "queryType": "timeseries",
+          "rawSql": "SELECT toDateTime(metric_date) AS time, value AS \"Среднее время\"\nFROM agg_daily_metrics FINAL\nWHERE metric_name = 'avg_watch_seconds' AND $__dateFilter(metric_date)\nORDER BY time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "showPoints": "always"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "type": "barchart",
+      "title": "Топ-10 фильмов за период",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT movie_id AS \"Фильм\", sum(views) AS \"Просмотры\"\nFROM agg_top_movies FINAL\nWHERE $__dateFilter(metric_date)\nGROUP BY movie_id\nORDER BY \"Просмотры\" DESC\nLIMIT 10"
+        }
+      ],
+      "options": {
+        "orientation": "horizontal",
+        "xField": "Фильм",
+        "showValue": "always",
+        "legend": {
+          "showLegend": false
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "type": "piechart",
+      "title": "Распределение событий по устройствам",
+      "gridPos": {
+        "x": 12,
+        "y": 20,
+        "w": 12,
+        "h": 9
+      },
+      "datasource": {
+        "type": "grafana-clickhouse-datasource",
+        "uid": "clickhouse"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "grafana-clickhouse-datasource",
+            "uid": "clickhouse"
+          },
+          "editorType": "sql",
+          "format": 1,
+          "queryType": "table",
+          "rawSql": "SELECT toString(device_type) AS \"Устройство\", sum(events) AS \"События\"\nFROM agg_device_daily FINAL\nWHERE $__dateFilter(metric_date)\nGROUP BY device_type\nORDER BY device_type"
+        }
+      ],
+      "options": {
+        "pieType": "donut",
+        "displayLabels": [
+          "name",
+          "percent"
+        ],
+        "reduceOptions": {
+          "values": true,
+          "calcs": [],
+          "fields": ""
+        },
+        "legend": {
+          "showLegend": true,
+          "displayMode": "table",
+          "placement": "right",
+          "values": [
+            "value",
+            "percent"
+          ]
+        }
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "decimals": 0
+        },
+        "overrides": []
+      }
+    }
+  ]
+}

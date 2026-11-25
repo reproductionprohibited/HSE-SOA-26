@@ -1,0 +1,15 @@
+[project]
+name = "hw5-tests"
+version = "0.1.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "clickhouse-connect>=0.8",
+    "httpx>=0.27",
+    "pytest>=8.3",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = "-v"

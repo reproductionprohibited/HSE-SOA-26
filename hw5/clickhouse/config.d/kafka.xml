@@ -1,0 +1,16 @@
+<clickhouse>
+    <!-- Параметры Kafka Engine для movie_events_queue. Список брокеров — из env, поэтому переход
+         с одного брокера на кластер меняет только docker-compose, а не миграции. -->
+    <named_collections>
+        <movie_events_kafka>
+            <kafka_broker_list from_env="KAFKA_BROKERS"/>
+            <kafka_topic_list>movie-events</kafka_topic_list>
+            <kafka_group_name>clickhouse-movie-events</kafka_group_name>
+            <kafka_format>AvroConfluent</kafka_format>
+            <kafka_num_consumers>1</kafka_num_consumers>
+            <!-- Сброс батча в MV не реже раза в секунду (по умолчанию 7.5 с) -->
+            <kafka_flush_interval_ms>1000</kafka_flush_interval_ms>
+            <format_avro_schema_registry_url from_env="SCHEMA_REGISTRY_URL"/>
+        </movie_events_kafka>
+    </named_collections>
+</clickhouse>
